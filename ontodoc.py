@@ -34,9 +34,6 @@ class DocMining:
                                retmode='xml',
                                id=ids)
         results = Entrez.read(handle)        
-        # query = "curl \"https://www.ncbi.nlm.nih.gov/pubmed/30535405?report=abstract&format=text\""
-        # abstract = subprocess.Popen(
-        #     [query], stdout=subprocess.PIPE, shell=True).communicate()[0].decode()
         abstract = results['PubmedArticle'][0]['MedlineCitation']['Article']['Abstract']['AbstractText'][0]
         return abstract
 
@@ -106,23 +103,23 @@ class DocMining:
         return doc
 
 
-    def train(self, doc):
+    def train(self, doc, min_count, epochs):
         """Trains the analysed document.
 
         Arguments:
             doc: List with the analysed paper
+            min_count: Only words that occur more than min_count will be used
+            epochs: The number of iterations over the data set 
+            in order to train the model
 
         Returns:
             A doc2vec model
         """
-        min_count = (int(len(doc)/100*1))
-        if min_count == 0:
-            min_count = 5
         model = doc2vec.Doc2Vec(doc,
                                 vector_size=50,
                                 window=10,
                                 min_count=min_count,
-                                epochs=250,
+                                epochs=epochs,
                                 workers=4)
         return model
 
@@ -193,7 +190,6 @@ class DocMining:
                                             
                 except KeyError:
                     pass
-            # foundontologies[tag] = ontolist
         return foundontologies
 
     def disgenet(self, tags, model):
@@ -213,7 +209,6 @@ class DocMining:
         """
         disgenet_uris = {}
         for tag in tags:
-            print(tag)
             try:
                 linked = model.wv.similar_by_word(tag)
                 sparql_query = (
@@ -265,17 +260,22 @@ class DocMining:
 if __name__ == '__main__':
     ols = ols_client.client.OlsClient()
     foundontologies = {}
-    # pubmed_ids = ['26160520']
-    pubmed_ids = []
+    file_input = input("document path: ")
+    min_count = int(input("Minimum word count: "))
+    epochs = int(input("Number of training cycles: "))
+    if file_input:
+        pubmed_ids = []
+    else:
+        ids = input("Enter pubmed ids (comma seperated): ")
+        pubmed_ids = [ids]
     if pubmed_ids:
         abstract = DocMining().pubmed_abstract(pubmed_ids)
         paper = abstract
-        # abstract = papers['PubmedArticle'][0]['MedlineCitation']['Article']['Abstract']['AbstractText'][0]
     else:
-        paper = 'C:/Users/Rick/Desktop/aml.txt'
+        paper = file_input
     sentences = DocMining().load_data(paper)
     doc = DocMining().transform_data(sentences)
-    model = DocMining().train(doc)
+    model = DocMining().train(doc, min_count, epochs)
     ax, tags = DocMining().plot(model)
     foundontologies = DocMining().ontologies(tags, model)
     disgenet_uris = DocMining().disgenet(tags, model)
