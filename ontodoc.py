@@ -26,52 +26,56 @@ class DocMining:
             id_list: List of pubmed ids
 
         Returns:
-            The abstract from the pubmed article
+            The abstracts from the pubmed article
         """
-        ids = ','.join(id_list)
+        abstracts = []
         Entrez.email = 'your.email@example.com'
-        handle = Entrez.efetch(db='pubmed',
-                               retmode='xml',
-                               id=ids)
-        results = Entrez.read(handle)        
-        abstract = results['PubmedArticle'][0]['MedlineCitation']['Article']['Abstract']['AbstractText'][0]
-        return abstract
+        for id in id_list:
+            handle = Entrez.efetch(db='pubmed',
+                                retmode='xml',
+                                id=id)
+            results = Entrez.read(handle)
+            abstract = results['PubmedArticle'][0]['MedlineCitation']['Article']['Abstract']['AbstractText'][0]
+            abstracts.append(abstract)
+        return abstracts
 
 
-    def load_data(self, paper):
-        """Loading the paperto read the content.
+    def load_data(self, papers):
+        """Loading the paper to read the content.
 
         Arguments:
-            paper: The paper either as a file location or as a pubmed abstract
-            pubmed: If paper is from pubmed or not
+            papers: Papers as a file location or as a pubmed abstract
 
         Returns:
-            Sentences from the paper
+            Sentences from the papers
         """
         nltk.download('stopwords')
         regex = re.compile(r'([^\s\w]|_)+')
         doc = ""
-        if ".pdf" in paper:
-            pdfFileObject = open(paper, 'rb')
-            pdfReader = PyPDF2.PdfFileReader(pdfFileObject)
-            count = pdfReader.numPages
-            for i in range(count):
-                page = pdfReader.getPage(i)
-                doc += page.extractText()
-            sentences = regex.sub('', doc).lower().split("\n")
-        elif ".docx" in paper or ".doc" in paper:
-            officedoc = docx.Document(paper)
-            fullText = []
-            for para in officedoc.paragraphs:
-                fullText.append(para.text)
-            doc = '\n'.join(fullText)
-            sentences = regex.sub('', doc).lower().split("\n")
-        else:
-            try:
-                doc = open(paper, 'r').read()
-                sentences = regex.sub('', doc).lower().split("\n")
-            except FileNotFoundError:
-                sentences = paper.lower().split('. ')
+        sentences = []
+        for paper in papers:
+            if ".pdf" in paper:
+                pdfFileObject = open(paper, 'rb')
+                pdfReader = PyPDF2.PdfFileReader(pdfFileObject)
+                count = pdfReader.numPages
+                for i in range(count):
+                    page = pdfReader.getPage(i)
+                    doc += page.extractText()
+                sentences.append(regex.sub('', doc).lower().split("\n"))
+            elif ".docx" in paper or ".doc" in paper:
+                officedoc = docx.Document(paper)
+                fullText = []
+                for para in officedoc.paragraphs:
+                    fullText.append(para.text)
+                doc = '\n'.join(fullText)
+                sentences.append(regex.sub('', doc).lower().split("\n"))
+            else:
+                try:
+                    doc = open(paper, 'r').read()
+                    doc = doc.replace('\n', '')
+                    sentences.append(regex.sub('', doc).lower().split(". "))
+                except FileNotFoundError:
+                    sentences.append(paper.lower().split('. '))
         return sentences
 
 
@@ -87,19 +91,20 @@ class DocMining:
         STOP_WORDS = nltk.corpus.stopwords.words()
         doc = []
         analyzedDocument = namedtuple('AnalyzedDocument', 'words tags')
-        for i, text in enumerate(sentences):
-            wordlist = []
-            words = text.lower().split(" ")
-            tags = [i]
-            for word in words:
-                if word not in STOP_WORDS and len(word) > 2:
-                    try:
-                        int(word)
-                        pass
-                    except ValueError:
-                        wordlist.append(word)
-            if wordlist:
-                doc.append(analyzedDocument(wordlist, tags))
+        for s in sentences:
+            for i, text in enumerate(s):
+                wordlist = []
+                words = text.lower().split(" ")
+                tags = [i]
+                for word in words:
+                    if word not in STOP_WORDS and len(word) > 2:
+                        try:
+                            int(word)
+                            pass
+                        except ValueError:
+                            wordlist.append(word)
+                if wordlist:
+                    doc.append(analyzedDocument(wordlist, tags))
         return doc
 
 
@@ -187,7 +192,6 @@ class DocMining:
                                         if iri not in ontolist:
                                             foundontologies[label] = iri
                                             ontolist.append(iri)
-                                            
                 except KeyError:
                     pass
         return foundontologies
@@ -260,20 +264,20 @@ class DocMining:
 if __name__ == '__main__':
     ols = ols_client.client.OlsClient()
     foundontologies = {}
-    file_input = input("document path: ")
+    file_input = input("document paths (comma seperated): ")
     min_count = int(input("Minimum word count: "))
     epochs = int(input("Number of training cycles: "))
     if file_input:
         pubmed_ids = []
     else:
         ids = input("Enter pubmed ids (comma seperated): ")
-        pubmed_ids = [ids]
+        pubmed_ids = ids.split(',')
     if pubmed_ids:
         abstract = DocMining().pubmed_abstract(pubmed_ids)
-        paper = abstract
+        papers = abstract
     else:
-        paper = file_input
-    sentences = DocMining().load_data(paper)
+        papers = file_input.split(',')
+    sentences = DocMining().load_data(papers)
     doc = DocMining().transform_data(sentences)
     model = DocMining().train(doc, min_count, epochs)
     ax, tags = DocMining().plot(model)
