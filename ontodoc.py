@@ -28,6 +28,7 @@ class DocMining:
         Returns:
             The abstracts from the pubmed article
         """
+        abstract = ""
         abstracts = []
         Entrez.email = 'your.email@example.com'
         for id in id_list:
@@ -35,7 +36,8 @@ class DocMining:
                                 retmode='xml',
                                 id=id)
             results = Entrez.read(handle)
-            abstract = results['PubmedArticle'][0]['MedlineCitation']['Article']['Abstract']['AbstractText'][0]
+            for x in range(0, len(results['PubmedArticle'][0]['MedlineCitation']['Article']['Abstract']['AbstractText'])):
+                abstract += results['PubmedArticle'][0]['MedlineCitation']['Article']['Abstract']['AbstractText'][x]
             abstracts.append(abstract)
         return abstracts
 
@@ -79,11 +81,12 @@ class DocMining:
         return sentences
 
 
-    def transform_data(self, sentences):
+    def transform_data(self, sentences, min_length):
         """Removes stop words.
 
         Arguments:
             sentences: A list with sentences from the paper
+            min_length: The minimum word length
 
         Returns:
             List with analysed sentences
@@ -97,12 +100,8 @@ class DocMining:
                 words = text.lower().split(" ")
                 tags = [i]
                 for word in words:
-                    if word not in STOP_WORDS and len(word) > 2:
-                        try:
-                            int(word)
-                            pass
-                        except ValueError:
-                            wordlist.append(word)
+                    if word not in STOP_WORDS and len(word) > min_length and word.isalpha():
+                        wordlist.append(word)
                 if wordlist:
                     doc.append(analyzedDocument(wordlist, tags))
         return doc
@@ -187,14 +186,14 @@ class DocMining:
                     if iri not in ontolist:
                         if tag in label:
                             for link in linked:
-                                if float(link[1]) > 0.75:
-                                    if link[0] in description:
-                                        if iri not in ontolist:
-                                            foundontologies[label] = iri
-                                            ontolist.append(iri)
+                                if link[0] in description:
+                                    if iri not in ontolist:
+                                        foundontologies[label] = iri
+                                        ontolist.append(iri)
                 except KeyError:
                     pass
         return foundontologies
+
 
     def disgenet(self, tags, model):
         """Send SPARQL query to DisGeNET endpoint to get URIs
@@ -214,6 +213,7 @@ class DocMining:
         disgenet_uris = {}
         for tag in tags:
             try:
+                tag = tag.replace("'", "")
                 linked = model.wv.similar_by_word(tag)
                 sparql_query = (
                     "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>" +
@@ -255,6 +255,7 @@ class DocMining:
                     if row[0].strip("rdflib.term.URIRef") not in uris and count > 3:
                         uris.append(row[0].strip("rdflib.term.URIRef"))
                     if uris:
+                        print(row[1])
                         disgenet_uris[row[1].strip("rdflib.term.Literal")] = uris
             except URLError:
                 pass
@@ -266,6 +267,7 @@ if __name__ == '__main__':
     foundontologies = {}
     file_input = input("document paths (comma seperated): ")
     min_count = int(input("Minimum word count: "))
+    min_length = int(input("Minimum word length: "))
     epochs = int(input("Number of training cycles: "))
     if file_input:
         pubmed_ids = []
@@ -278,7 +280,7 @@ if __name__ == '__main__':
     else:
         papers = file_input.split(',')
     sentences = DocMining().load_data(papers)
-    doc = DocMining().transform_data(sentences)
+    doc = DocMining().transform_data(sentences, min_length)
     model = DocMining().train(doc, min_count, epochs)
     ax, tags = DocMining().plot(model)
     foundontologies = DocMining().ontologies(tags, model)
