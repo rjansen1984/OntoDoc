@@ -255,8 +255,7 @@ class DocMining:
                     if row[0].strip("rdflib.term.URIRef") not in uris and count > 3:
                         uris.append(row[0].strip("rdflib.term.URIRef"))
                     if uris:
-                        print(row[1])
-                        disgenet_uris[row[1].strip("rdflib.term.Literal")] = uris
+                        disgenet_uris[row[1]] = uris
             except URLError:
                 pass
         return disgenet_uris
