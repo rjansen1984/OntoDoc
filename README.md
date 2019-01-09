@@ -41,7 +41,7 @@ pip3.6 install biopython PyPDF2 python-docx ols-client genism rdflib nltk pandas
 git clone https://github.com/rjansen1984/OntoDoc
 ```
 
-### Windows
+### Windows 10
 
 * Download and install [Python 3.6.5](https://www.python.org/downloads/release/python-365/)
 * Download and install [git for Windows](https://git-scm.com/download/win)
@@ -68,3 +68,45 @@ conda install -c conda-forge pandas
 conda install -c conda-forge matplotlib
 git clone https://github.com/rjansen1984/OntoDoc
 ```
+
+*Make sure to use the conda pip
+
+## Use OntoDoc
+
+OntoDoc can be used with text files or with Pubmed IDs. Using Pubmed IDs only abstracts will be used instead of full papers.
+
+To start the script use the following commands:
+
+for Windows:
+
+```bash
+py ontodoc.py
+```
+
+for Linux:
+
+```bash
+python ontodoc.py
+```
+
+### Pubmed IDs
+
+Leave File path empty
+
+Enter minimum word count (only use words that will occur more than this number)
+
+Enter the minimum word length (only use words longer than this number)
+
+Enter number of training cycles (more cycles will give better results but will take longer to complete)
+
+Enter Pubmed IDs comma seperated e.g. 26160520,21943917
+
+### File path
+
+Enter file paths comma seperated e.g. /path/to/file1,/path/to/file2
+
+Enter minimum word count (only use words that will occur more than this number)
+
+Enter the minimum word length (only use words longer than this number)
+
+Enter number of training cycles (more cycles will give better results but will take longer to complete)
