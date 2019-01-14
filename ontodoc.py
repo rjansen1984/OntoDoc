@@ -17,7 +17,30 @@ from sklearn.manifold import TSNE
 from urllib.error import URLError
 
 
-class DocMining:
+class OntoDoc:
+    """Class to find ontology links based on a document, Pubmed ID or pasted text.
+    """
+    def __init__(self):
+        """Initialisation
+        """
+        self.min_count = 1 # Minimum occurance of word
+        self.min_length = 3 # Minimum word length
+        self.epochs = 2500 # Training iterations
+        self.ols = ols_client.client.OlsClient() # Ontology Lookup Service client
+        self.vector_size = 100 # Doc2Vec vector size
+        self.window = 10 # Doc2Vec window size
+        self.workers = 4 # Number of workers threads
+        self.db = 'pubmed' # Entrez database to find pubmed abstracts
+        self.retmode = 'xml' # Pubmed retrun mode
+        self.regex = re.compile(r'([^\s\w]|_)+') # Regex to transform data before creating vectors
+        self.stop_words = nltk.corpus.stopwords.words() # List of stop words
+        self.link_percentage = 0.90 # Minimum word link percentage
+        self.min_link = 3 # Minimum number of links in ontology description
+        self.vocab = []  # The vocabulary from the Doc2Vec model
+        self.tokens = [] # List with tokens from the Doc2Vec model
+        self.tags = [] # List to store all available tags from data
+
+
     def pubmed_abstract(self, id_list):
         """Gets the abstract from an article in pubmed.
         The list with pubmed ids will be 
@@ -32,9 +55,9 @@ class DocMining:
         abstracts = []
         Entrez.email = 'your.email@example.com'
         for id in id_list:
-            handle = Entrez.efetch(db='pubmed',
-                                retmode='xml',
-                                id=id)
+            handle = Entrez.efetch(db=self.db,
+                                   retmode=self.retmode,
+                                   id=id)
             results = Entrez.read(handle)
             for x in range(0, len(results['PubmedArticle'][0]['MedlineCitation']['Article']['Abstract']['AbstractText'])):
                 abstract += results['PubmedArticle'][0]['MedlineCitation']['Article']['Abstract']['AbstractText'][x]
@@ -50,9 +73,11 @@ class DocMining:
 
         Returns:
             Sentences from the papers
+
+        Raises:
+            FileNotFoundError: There is no file found. 
         """
         nltk.download('stopwords')
-        regex = re.compile(r'([^\s\w]|_)+')
         doc = ""
         sentences = []
         for paper in papers:
@@ -63,25 +88,25 @@ class DocMining:
                 for i in range(count):
                     page = pdfReader.getPage(i)
                     doc += page.extractText()
-                sentences.append(regex.sub('', doc).lower().split("\n"))
+                sentences.append(self.regex.sub('', doc).lower().split("\n"))
             elif ".docx" in paper or ".doc" in paper:
                 officedoc = docx.Document(paper)
                 fullText = []
                 for para in officedoc.paragraphs:
                     fullText.append(para.text)
                 doc = '\n'.join(fullText)
-                sentences.append(regex.sub('', doc).lower().split("\n"))
+                sentences.append(self.regex.sub('', doc).lower().split("\n"))
             else:
                 try:
                     doc = open(paper, 'r').read()
                     doc = doc.replace('\n', '')
-                    sentences.append(regex.sub('', doc).lower().split(". "))
+                    sentences.append(self.regex.sub('', doc).lower().split(". "))
                 except FileNotFoundError:
-                    sentences.append(paper.lower().split('. '))
+                    sentences.append(self.regex.sub('', paper).lower().split(". "))
         return sentences
 
 
-    def transform_data(self, sentences, min_length):
+    def transform_data(self, sentences):
         """Removes stop words.
 
         Arguments:
@@ -91,7 +116,6 @@ class DocMining:
         Returns:
             List with analysed sentences
         """
-        STOP_WORDS = nltk.corpus.stopwords.words()
         doc = []
         analyzedDocument = namedtuple('AnalyzedDocument', 'words tags')
         for s in sentences:
@@ -100,14 +124,14 @@ class DocMining:
                 words = text.lower().split(" ")
                 tags = [i]
                 for word in words:
-                    if word not in STOP_WORDS and len(word) > min_length and word.isalpha():
+                    if word not in self.stop_words and len(word) >= self.min_length and word.isalpha():
                         wordlist.append(word)
                 if wordlist:
                     doc.append(analyzedDocument(wordlist, tags))
         return doc
 
 
-    def train(self, doc, min_count, epochs):
+    def train(self, doc):
         """Trains the analysed document.
 
         Arguments:
@@ -120,11 +144,11 @@ class DocMining:
             A doc2vec model
         """
         model = doc2vec.Doc2Vec(doc,
-                                vector_size=50,
-                                window=10,
-                                min_count=min_count,
-                                epochs=epochs,
-                                workers=4)
+                                vector_size=self.vector_size,
+                                window=self.window,
+                                min_count=self.min_count,
+                                workers=self.workers)
+        model.train(doc, total_examples=model.corpus_count, epochs=self.epochs)
         return model
 
 
@@ -138,17 +162,15 @@ class DocMining:
             A scatterplot with the doc2vec voabulary based on the submitted paper
             A list of words that can be used to tag data files connected to the paper
         """
-        vocab = []
-        tokens = []
         tags = []
         voc = list(model.wv.vocab)
         for v in voc:
-            tokens.append(model[v])
-            vocab.append(v)
+            self.tokens.append(model[v])
+            self.vocab.append(v)
         tsne = TSNE(perplexity=40, n_components=2,
                     init='pca', n_iter=2500, random_state=23)
-        X_tsne = tsne.fit_transform(tokens)
-        df = pd.DataFrame(X_tsne, index=vocab, columns=['x', 'y'])
+        X_tsne = tsne.fit_transform(self.tokens)
+        df = pd.DataFrame(X_tsne, index=self.vocab, columns=['x', 'y'])
         fig = plt.figure(figsize=(16, 16))
         ax = fig.add_subplot(1, 1, 1)
         ax.scatter(df['x'], df['y'], color='blue')
@@ -156,7 +178,7 @@ class DocMining:
             tags.append(word)
             ax.annotate(word,
                         pos)
-        return ax, tags
+        return tags
 
 
     def ontologies(self, tags, model):
@@ -177,7 +199,7 @@ class DocMining:
         for tag in tags:
             linked = model.wv.similar_by_word(tag)
             ontolist = []
-            searchonto = ols.search(tag)
+            searchonto = self.ols.search(tag)
             for i in range(0, len(searchonto['response']['docs'])):
                 try:
                     iri = searchonto['response']['docs'][i]['iri']
@@ -186,7 +208,7 @@ class DocMining:
                     if iri not in ontolist:
                         if tag in label:
                             for link in linked:
-                                if link[0] in description:
+                                if link[0] in description and link[1] > self.link_percentage:
                                     if iri not in ontolist:
                                         foundontologies[label] = iri
                                         ontolist.append(iri)
@@ -216,24 +238,6 @@ class DocMining:
                 tag = tag.replace("'", "")
                 linked = model.wv.similar_by_word(tag)
                 sparql_query = (
-                    "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>" +
-                    "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>" +
-                    "PREFIX owl: <http://www.w3.org/2002/07/owl#>" +
-                    "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>" +
-                    "PREFIX dcterms: <http://purl.org/dc/terms/>" +
-                    "PREFIX foaf: <http://xmlns.com/foaf/0.1/>" +
-                    "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>" +
-                    "PREFIX void: <http://rdfs.org/ns/void#>" +
-                    "PREFIX sio: <http://semanticscience.org/resource/>" +
-                    "PREFIX ncit: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#>" +
-                    "PREFIX up: <http://purl.uniprot.org/core/>" +
-                    "PREFIX dcat: <http://www.w3.org/ns/dcat#>" +
-                    "PREFIX dctypes: <http://purl.org/dc/dcmitype/>" +
-                    "PREFIX wi: <http://http://purl.org/ontology/wi/core#>" +
-                    "PREFIX eco: <http://http://purl.obolibrary.org/obo/eco.owl#>" +
-                    "PREFIX prov: <http://http://http://www.w3.org/ns/prov#>" +
-                    "PREFIX pav: <http://http://http://purl.org/pav/>" +
-                    "PREFIX obo: <http://purl.obolibrary.org/obo/>" +
                     "SELECT * " +
                     "WHERE { " +
                     "?disease rdf:type ncit:C7057 . " +
@@ -247,52 +251,71 @@ class DocMining:
                 g = rdflib.ConjunctiveGraph('SPARQLStore')
                 g.open("http://rdf.disgenet.org/sparql/")
                 for row in g.query(sparql_query):
-                    uris = []
                     count = 0
                     for link in linked:
-                        if link[0] in row[2]:
+                        if link[0] in row[2] and link[1] > self.link_percentage:
                             count += 1
-                    if row[0].strip("rdflib.term.URIRef") not in uris and count > 3:
-                        uris.append(row[0].strip("rdflib.term.URIRef"))
-                    if uris:
-                        disgenet_uris[row[1]] = uris
+                    if count >= self.min_link:
+                        disgenet_uris[row[1]] = row[0].strip("rdflib.term.URIRef")
             except URLError:
                 pass
         return disgenet_uris
 
 
-if __name__ == '__main__':
-    ols = ols_client.client.OlsClient()
-    foundontologies = {}
-    file_input = input("document paths (comma seperated): ")
-    min_count = int(input("Minimum word count: "))
-    min_length = int(input("Minimum word length: "))
-    epochs = int(input("Number of training cycles: "))
-    if file_input:
-        pubmed_ids = []
-    else:
-        ids = input("Enter pubmed ids (comma seperated): ")
-        pubmed_ids = ids.split(',')
-    if pubmed_ids:
-        abstract = DocMining().pubmed_abstract(pubmed_ids)
-        papers = abstract
-    else:
-        papers = file_input.split(',')
-    sentences = DocMining().load_data(papers)
-    doc = DocMining().transform_data(sentences, min_length)
-    model = DocMining().train(doc, min_count, epochs)
-    ax, tags = DocMining().plot(model)
-    foundontologies = DocMining().ontologies(tags, model)
-    disgenet_uris = DocMining().disgenet(tags, model)
-    with open("ontologies.txt", "w") as ontofile:
-        for name, iri in foundontologies.items():
-            if iri:
-                ontofile.write(name + ":\n")
-                ontofile.write(iri + "\n")
-                ontofile.write("\n")
-        ontofile.write("Diseases found based on tags:\n")
-        for disease, uris in disgenet_uris.items():
-            ontofile.write(disease + "\n")
-            for uri in uris:
-                ontofile.write(uri + "\n")
+    def get_variables(self, ontodoc):
+        """Get all variables from user input.
+
+            Returns:
+                file input paths, minimum word occurance, minimum wword length, 
+                number of training iterations and pubmed IDs
+        """
+        while True:
+            option = int(input("1 -- document; 2 -- Pubmed; 3 -- Paste text: "))
+            if option == 1:
+                file_input = input("document paths (comma seperated): ")
+                papers = file_input.split(',')
+                break
+            elif option == 2:
+                ids = input("Enter pubmed ids (comma seperated): ")
+                pubmed_ids = ids.split(',')
+                papers = ontodoc.pubmed_abstract(pubmed_ids)
+                break
+            elif option == 3:
+                papers = [input("Enter text to analyse: ")]
+                break
+            else:
+                print("No valid option selected!")
+                print("Please try again...")
+        return papers
+
+
+    def create_documents(self, foundontologies):
+        """Create OLS and DisGeNET document with all found ontology links.
+        
+        Arguments:
+            foundontologies: Ontologies found with OLS and DisGeNET
+        """
+        with open("ontologies.txt", "w") as ontofile:
+            for name, iri in foundontologies.items():
+                if iri:
+                    ontofile.write(name + ":\n")
+                    ontofile.write(iri + "\n")
+                    ontofile.write("\n")
+        with open("disgenet.txt", "w") as disgenetfile:
+            disgenetfile.write("Diseases found based on tags:\n\n")
+            for disease, uri in disgenet_uris.items():
+                disgenetfile.write(disease + "\n" + uri + "\n")
+
+
+if __name__ == "__main__":
+    ontodoc = OntoDoc()
+    papers = ontodoc.get_variables(ontodoc)
+    sentences = ontodoc.load_data(papers)
+    doc = ontodoc.transform_data(sentences)
+    model = ontodoc.train(doc)
+    tags = ontodoc.plot(model)
+    foundontologies = ontodoc.ontologies(tags, model)
+    disgenet_uris = ontodoc.disgenet(tags, model)
+    ontodoc.create_documents(foundontologies)
     plt.show()
+    
