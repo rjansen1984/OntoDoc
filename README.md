@@ -89,24 +89,28 @@ for Linux:
 python ontodoc.py
 ```
 
-### Pubmed IDs
+There will be three option to provide data:
 
-Leave File path empty
+1. Enter a file path to an existing file.
 
-Enter minimum word count (only use words that will occur more than this number)
+2. Enter a Pubmed ID.
 
-Enter the minimum word length (only use words longer than this number)
-
-Enter number of training cycles (more cycles will give better results but will take longer to complete)
-
-Enter Pubmed IDs comma seperated e.g. 26160520,21943917
+3. Paste data in the command line.
 
 ### File path
 
+Select option 1.
+
 Enter file paths comma seperated e.g. /path/to/file1,/path/to/file2
 
-Enter minimum word count (only use words that will occur more than this number)
+### Pubmed IDs
 
-Enter the minimum word length (only use words longer than this number)
+Select option 2.
 
-Enter number of training cycles (more cycles will give better results but will take longer to complete)
+Enter Pubmed IDs comma seperated e.g. 26160520,21943917
+
+### Paste data
+
+Select option 3.
+
+Paste the data you want to analyse into the command line and press enter.
