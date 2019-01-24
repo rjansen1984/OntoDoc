@@ -16,6 +16,7 @@ The following is needed to run OntoDoc
 * nltk 3.2.5 or higher
 * pandas 0.23.4
 * matplotlib 2.2.3 or higher
+* sklearn
 
 ## Install OntoDoc
 
@@ -25,7 +26,7 @@ The following is needed to run OntoDoc
 sudo apt update
 sudo apt upgrade
 sudo apt install python3 python3-pip
-pip install biopython PyPDF2 python-docx ols-client gensim rdflib nltk pandas matplotlib
+pip3 install biopython PyPDF2 python-docx ols-client gensim rdflib nltk pandas matplotlib sklearn
 git clone https://github.com/rjansen1984/OntoDoc
 ```
 
@@ -37,7 +38,7 @@ sudo yum install yum-utils
 sudo yum install https://centos7.iuscommunity.org/ius-release.rpm
 sudo yum makecache
 sudo yum install python36u python36u-pip
-pip3.6 install biopython PyPDF2 python-docx ols-client gensim rdflib nltk pandas matplotlib
+pip3.6 install biopython PyPDF2 python-docx ols-client gensim rdflib nltk pandas matplotlib sklearn
 git clone https://github.com/rjansen1984/OntoDoc
 ```
 
@@ -47,7 +48,7 @@ git clone https://github.com/rjansen1984/OntoDoc
 * Download and install [git for Windows](https://git-scm.com/download/win)
 
 ```bash
-pip install biopython PyPDF2 python-docx ols-client gensim rdflib nltk pandas matplotlib
+pip3 install biopython PyPDF2 python-docx ols-client gensim rdflib nltk pandas matplotlib sklearn
 git clone https://github.com/rjansen1984/OntoDoc
 ```
 
