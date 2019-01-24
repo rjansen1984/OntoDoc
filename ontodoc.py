@@ -15,6 +15,7 @@ from gensim.models import doc2vec, word2vec
 from collections import namedtuple
 from sklearn.manifold import TSNE
 from urllib.error import URLError
+from SPARQLWrapper.SPARQLExceptions import EndPointInternalError
 
 
 class OntoDoc:
@@ -24,8 +25,8 @@ class OntoDoc:
         """Initialisation
         """
         self.min_count = 1 # Minimum occurance of word
-        self.min_length = 3 # Minimum word length
-        self.epochs = 2500 # Training iterations
+        self.min_length = 2 # Minimum word length
+        self.epochs = 50 # Training iterations
         self.ols = ols_client.client.OlsClient() # Ontology Lookup Service client
         self.vector_size = 100 # Doc2Vec vector size
         self.window = 10 # Doc2Vec window size
@@ -51,10 +52,10 @@ class OntoDoc:
         Returns:
             The abstracts from the pubmed article
         """
-        abstract = ""
         abstracts = []
         Entrez.email = 'your.email@example.com'
         for id in id_list:
+            abstract = ""
             handle = Entrez.efetch(db=self.db,
                                    retmode=self.retmode,
                                    id=id)
@@ -77,10 +78,10 @@ class OntoDoc:
         Raises:
             FileNotFoundError: There is no file found. 
         """
-        nltk.download('stopwords')
         doc = ""
+        docs = {}
         sentences = []
-        for paper in papers:
+        for i, paper in enumerate(papers):
             if ".pdf" in paper:
                 pdfFileObject = open(paper, 'rb')
                 pdfReader = PyPDF2.PdfFileReader(pdfFileObject)
@@ -102,11 +103,11 @@ class OntoDoc:
                     doc = doc.replace('\n', '')
                     sentences.append(self.regex.sub('', doc).lower().split(". "))
                 except FileNotFoundError:
-                    sentences.append(self.regex.sub('', paper).lower().split(". "))
-        return sentences
+                    docs[i] = paper.lower().split(". ")
+        return docs
 
 
-    def transform_data(self, sentences):
+    def transform_data(self, docs):
         """Removes stop words.
 
         Arguments:
@@ -116,22 +117,25 @@ class OntoDoc:
         Returns:
             List with analysed sentences
         """
-        doc = []
+        doclist = []
         analyzedDocument = namedtuple('AnalyzedDocument', 'words tags')
-        for s in sentences:
-            for i, text in enumerate(s):
-                wordlist = []
-                words = text.lower().split(" ")
-                tags = [i]
-                for word in words:
-                    if word not in self.stop_words and len(word) >= self.min_length and word.isalpha():
-                        wordlist.append(word)
-                if wordlist:
-                    doc.append(analyzedDocument(wordlist, tags))
-        return doc
+        for i, doc in docs.items():
+            tags = [i]
+            wordlist = []
+            words = []
+            for sentence in doc:
+                splitsentence = sentence.split(" ")
+                for s in splitsentence:
+                    words.append(self.regex.sub('', s))
+            for word in words:
+                if word not in self.stop_words and len(word) >= self.min_length and word.isalpha():
+                    wordlist.append(word)
+            if wordlist:
+                doclist.append(analyzedDocument(wordlist, tags))
+        return doclist
 
 
-    def train(self, doc):
+    def train(self, doclist):
         """Trains the analysed document.
 
         Arguments:
@@ -143,12 +147,15 @@ class OntoDoc:
         Returns:
             A doc2vec model
         """
-        model = doc2vec.Doc2Vec(doc,
+        model = doc2vec.Doc2Vec(doclist,
                                 vector_size=self.vector_size,
                                 window=self.window,
                                 min_count=self.min_count,
                                 workers=self.workers)
-        model.train(doc, total_examples=model.corpus_count, epochs=self.epochs)
+        for dummyepoch in range(self.epochs):
+            model.train(doclist, total_examples=model.corpus_count, epochs=1)
+            model.alpha -= 0.0002
+            model.min_alpha = model.alpha
         return model
 
 
@@ -229,7 +236,7 @@ class OntoDoc:
             Dictionary with tgas and DisGeNET URIs.
 
         Raises:
-            URLError: SPARQL endpont is timed-out. 
+            URLError, EndPointInternalError: SPARQL endpont is timed-out. 
             Can not find anything or server error.
         """
         disgenet_uris = {}
@@ -257,7 +264,7 @@ class OntoDoc:
                             count += 1
                     if count >= self.min_link:
                         disgenet_uris[row[1]] = row[0].strip("rdflib.term.URIRef")
-            except URLError:
+            except (URLError, EndPointInternalError):
                 pass
         return disgenet_uris
 
@@ -308,11 +315,12 @@ class OntoDoc:
 
 
 if __name__ == "__main__":
+    nltk.download('stopwords')
     ontodoc = OntoDoc()
     papers = ontodoc.get_variables(ontodoc)
-    sentences = ontodoc.load_data(papers)
-    doc = ontodoc.transform_data(sentences)
-    model = ontodoc.train(doc)
+    docs = ontodoc.load_data(papers)
+    doclist = ontodoc.transform_data(docs)
+    model = ontodoc.train(doclist)
     tags = ontodoc.plot(model)
     foundontologies = ontodoc.ontologies(tags, model)
     disgenet_uris = ontodoc.disgenet(tags, model)
