@@ -1,9 +1,12 @@
+import time
+import sys
 import rdflib
 import PyPDF2
 import docx
 import re
 import nltk
 import subprocess
+import json
 import ols_client
 import itertools
 import datetime
@@ -26,7 +29,7 @@ class OntoDoc:
         """
         self.min_count = 1 # Minimum occurance of word
         self.min_length = 2 # Minimum word length
-        self.epochs = 50 # Training iterations
+        self.epochs = 100 # Training iterations
         self.ols = ols_client.client.OlsClient() # Ontology Lookup Service client
         self.vector_size = 100 # Doc2Vec vector size
         self.window = 10 # Doc2Vec window size
@@ -36,6 +39,7 @@ class OntoDoc:
         self.regex = re.compile(r'([^\s\w]|_)+') # Regex to transform data before creating vectors
         self.stop_words = nltk.corpus.stopwords.words() # List of stop words
         self.link_percentage = 0.90 # Minimum word link percentage
+        self.omicsscore = 30 # Minimum OMICS score on OmicsDI
         self.min_link = 3 # Minimum number of links in ontology description
         self.vocab = []  # The vocabulary from the Doc2Vec model
         self.tokens = [] # List with tokens from the Doc2Vec model
@@ -188,6 +192,56 @@ class OntoDoc:
         return tags
 
 
+    def update_progress(self, job_title, progress):
+        """Build a progress bar when searching databases.
+        
+        Arguments:
+            job_title: Name of the job shown with the progressbar
+            progress: Progress to calculate percentage
+        """
+        length = 100 # modify this to change the length
+        block = int(round(length*progress))
+        msg = "\r{0}: [{1}] {2}%".format(job_title, "#"*block + "-"*(length-block), round(progress*100, 2))
+        if progress >= 1: msg += " DONE\r\n"
+        sys.stdout.write(msg)
+        sys.stdout.flush()
+
+
+    def omics_di(self, tags, model):
+        """Search the OmicsDI database for datasets related to tags found with Doc2Vec.
+        
+        Arguments:
+            tags: Tags found by doc2vec
+            model: doc2vec model
+        
+        Returns:
+            A dictionary with all found OmicsDI URLs for each tag.
+        """
+        foundomics = {}
+        tagnr = 0
+        for tag in tags:
+            tagnr += 1
+            linked = model.wv.similar_by_word(tag)
+            query = 'http://www.omicsdi.org/ws/dataset/search?query=' + tag
+            res = subprocess.Popen(["curl", "-s", "-k", "-L", query], shell=True, stdout=subprocess.PIPE).communicate()[0].decode()
+            jsonresult = json.loads(res)
+            for x in range(0, len(jsonresult["datasets"])):
+                count = 0
+                description = jsonresult["datasets"][x]["description"]
+                rid = jsonresult["datasets"][x]["id"]
+                source = jsonresult["datasets"][x]["source"]
+                score = int(float(jsonresult["datasets"][x]["viewsCountScaled"])*1000)
+                url = ("https://www.omicsdi.org/dataset/" + source + "/" + rid)
+                for link in linked:
+                    if link[0] in description:
+                        count += 1
+                if count >= self.min_link and score >= self.omicsscore and link[1] >= self.link_percentage:
+                    foundomics[rid] = url
+                    # Test
+            OntoDoc().update_progress("Searching tags in the OmicsDI database", tagnr/len(tags))
+        return foundomics
+
+
     def ontologies(self, tags, model):
         """Search OLS to find ontologies that can be linked to the found tags.
         The words linked to the tag will be used to find the most appropriate 
@@ -195,6 +249,7 @@ class OntoDoc:
         
         Arguments:
             tags: Tags found by doc2vec
+            model: doc2vec model
         
         Returns:
             A dictionary with all found ontologies for each tag.
@@ -203,7 +258,10 @@ class OntoDoc:
             KeyError: There is no ontology description
         """
         foundontologies = {}
+        tagnr = 0
+        # try:
         for tag in tags:
+            tagnr += 1
             linked = model.wv.similar_by_word(tag)
             ontolist = []
             searchonto = self.ols.search(tag)
@@ -221,6 +279,9 @@ class OntoDoc:
                                         ontolist.append(iri)
                 except KeyError:
                     pass
+            OntoDoc().update_progress("Searching tags in the OLS database", tagnr/len(tags))
+        # except json.decoder.JSONDecodeError:
+        #     pass
         return foundontologies
 
 
@@ -240,8 +301,10 @@ class OntoDoc:
             Can not find anything or server error.
         """
         disgenet_uris = {}
+        tagnr = 0
         for tag in tags:
             try:
+                tagnr += 1
                 tag = tag.replace("'", "")
                 linked = model.wv.similar_by_word(tag)
                 sparql_query = (
@@ -264,7 +327,11 @@ class OntoDoc:
                             count += 1
                     if count >= self.min_link:
                         disgenet_uris[row[1]] = row[0].strip("rdflib.term.URIRef")
+                OntoDoc().update_progress("Searching tags in the DisGeNET triple store", tagnr/len(tags))
             except (URLError, EndPointInternalError):
+                tagnr += 1
+                OntoDoc().update_progress("Searching tags in the DisGeNET triple store", tagnr/len(tags))
+                print("\n", tag, "not found!!!")
                 pass
         return disgenet_uris
 
@@ -296,14 +363,14 @@ class OntoDoc:
         return papers
 
 
-    def create_documents(self, foundontologies):
+    def create_documents(self, foundomics, disgenet_uris):
         """Create OLS and DisGeNET document with all found ontology links.
         
         Arguments:
             foundontologies: Ontologies found with OLS and DisGeNET
         """
-        with open("ontologies.txt", "w") as ontofile:
-            for name, iri in foundontologies.items():
+        with open("OmicsDI.txt", "w") as ontofile:
+            for name, iri in foundomics.items():
                 if iri:
                     ontofile.write(name + ":\n")
                     ontofile.write(iri + "\n")
@@ -322,8 +389,9 @@ if __name__ == "__main__":
     doclist = ontodoc.transform_data(docs)
     model = ontodoc.train(doclist)
     tags = ontodoc.plot(model)
-    foundontologies = ontodoc.ontologies(tags, model)
+    # foundontologies = ontodoc.ontologies(tags, model)
+    foundomics = ontodoc.omics_di(tags, model)
     disgenet_uris = ontodoc.disgenet(tags, model)
-    ontodoc.create_documents(foundontologies)
+    ontodoc.create_documents(foundomics, disgenet_uris)
     plt.show()
     
