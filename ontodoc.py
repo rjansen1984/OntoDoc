@@ -39,8 +39,8 @@ class OntoDoc:
         self.regex = re.compile(r'([^\s\w]|_)+') # Regex to transform data before creating vectors
         self.stop_words = nltk.corpus.stopwords.words() # List of stop words
         self.link_percentage = 0.90 # Minimum word link percentage
-        self.omicsscore = 30 # Minimum OMICS score on OmicsDI
-        self.min_link = 3 # Minimum number of links in ontology description
+        self.omicsscore = 20 # Minimum OMICS score on OmicsDI
+        self.min_link = 4 # Minimum number of links in ontology description
         self.vocab = []  # The vocabulary from the Doc2Vec model
         self.tokens = [] # List with tokens from the Doc2Vec model
         self.tags = [] # List to store all available tags from data
@@ -259,7 +259,6 @@ class OntoDoc:
         """
         foundontologies = {}
         tagnr = 0
-        # try:
         for tag in tags:
             tagnr += 1
             linked = model.wv.similar_by_word(tag)
@@ -280,8 +279,6 @@ class OntoDoc:
                 except KeyError:
                     pass
             OntoDoc().update_progress("Searching tags in the OLS database", tagnr/len(tags))
-        # except json.decoder.JSONDecodeError:
-        #     pass
         return foundontologies
 
 
@@ -336,15 +333,30 @@ class OntoDoc:
         return disgenet_uris
 
 
-    def get_variables(self, ontodoc):
+    def create_documents(self, found_data, tool):
+        """Create OLS and DisGeNET document with all found ontology links.
+        
+        Arguments:
+            foundontologies: Ontologies found with OLS and DisGeNET
+        """
+        with open(tool + ".txt", "w") as results:
+            results.write("Data files found based on tags:\n\n")
+            for name, iri in found_data.items():
+                if iri:
+                    results.write(name + ":\n")
+                    results.write(iri + "\n")
+                    results.write("\n")
+
+
+    def onto_start(self, ontodoc):
         """Get all variables from user input.
 
             Returns:
                 file input paths, minimum word occurance, minimum wword length, 
                 number of training iterations and pubmed IDs
         """
+        option = int(input("1 -- document; 2 -- Pubmed; 3 -- Paste text: "))
         while True:
-            option = int(input("1 -- document; 2 -- Pubmed; 3 -- Paste text: "))
             if option == 1:
                 file_input = input("document paths (comma seperated): ")
                 papers = file_input.split(',')
@@ -360,38 +372,33 @@ class OntoDoc:
             else:
                 print("No valid option selected!")
                 print("Please try again...")
-        return papers
-
-
-    def create_documents(self, foundomics, disgenet_uris):
-        """Create OLS and DisGeNET document with all found ontology links.
-        
-        Arguments:
-            foundontologies: Ontologies found with OLS and DisGeNET
-        """
-        with open("OmicsDI.txt", "w") as ontofile:
-            for name, iri in foundomics.items():
-                if iri:
-                    ontofile.write(name + ":\n")
-                    ontofile.write(iri + "\n")
-                    ontofile.write("\n")
-        with open("disgenet.txt", "w") as disgenetfile:
-            disgenetfile.write("Diseases found based on tags:\n\n")
-            for disease, uri in disgenet_uris.items():
-                disgenetfile.write(disease + "\n" + uri + "\n")
+                option = int(input("1 -- document; 2 -- Pubmed; 3 -- Paste text: "))
+        toolset = input("o -- OmicsDI, d -- DisGeNET, l -- OLS: ")
+        docs = ontodoc.load_data(papers)
+        doclist = ontodoc.transform_data(docs)
+        model = ontodoc.train(doclist)
+        tags = ontodoc.plot(model)
+        while toolset:
+            if "o" in toolset:
+                results = ontodoc.omics_di(tags, model)
+                toolset = toolset.strip("o")
+                tool = "OmicsDI"
+            elif "d" in toolset:
+                results = ontodoc.disgenet(tags, model)
+                toolset = toolset.strip("d")
+                tool = "DisGeNET"
+            elif "l" in toolset:
+                results = ontodoc.ontologies(tags, model)
+                toolset = toolset.strip("l")
+                tool = "OLS"
+            else:
+                print("No valid option!")
+                print("Please try again")
+                toolset = input("o -- OmicsDI, d -- DisGeNET, l -- OLS: ")
+            ontodoc.create_documents(results, tool)
+        plt.show()
 
 
 if __name__ == "__main__":
-    nltk.download('stopwords')
     ontodoc = OntoDoc()
-    papers = ontodoc.get_variables(ontodoc)
-    docs = ontodoc.load_data(papers)
-    doclist = ontodoc.transform_data(docs)
-    model = ontodoc.train(doclist)
-    tags = ontodoc.plot(model)
-    # foundontologies = ontodoc.ontologies(tags, model)
-    foundomics = ontodoc.omics_di(tags, model)
-    disgenet_uris = ontodoc.disgenet(tags, model)
-    ontodoc.create_documents(foundomics, disgenet_uris)
-    plt.show()
-    
+    ontodoc.onto_start(ontodoc)
